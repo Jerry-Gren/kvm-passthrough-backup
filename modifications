@@ -1,0 +1,123 @@
+1. Follow the guide on: https://looking-glass.io/docs/B7/install_libvirt/#
+
+- Determining memory to 64 MB
+
+- IVSHMEM with the KVMFR module (Recommended)
+
+-- In "Prerequisites" part, add "options kvmfr static_size_mb=32 group_name=libvirt-qemu" to `/etc/modprobe.d/kvmfr.conf`
+   (maybe no need to add `group_name=libvirt-qemu`)
+
+-- Note that user must be in these groups `libvirt-qemu libvirt uucp kvm wheel`
+   (maybe no need)
+
+-- In "Permissions" part, simply use `SUBSYSTEM=="kvmfr", GROUP="kvm", MODE="0660"`.
+
+-- In "AppArmor" part, there is no need to create `/etc/apparmor.d/local/abstractions/libvirt-qemu`, but `cgroups` is needed.
+
+- Keyboard/mouse/display/audio. Add a Display Spice device (localhost only), set Video to `none`.
+
+- Clipboard synchronization
+
+-- No need to install SPICE guest tools, simply add libvirt config.
+
+- AppArmor (Nothing to do)
+
+- Memballoon
+
+-- Simply set model to `none`.
+
+- Additional tuning
+
+-- Assigning CPUs
+
+  <iothreads>1</iothreads>
+  <cputune>
+    <vcpupin vcpu='0' cpuset='4'/>
+    <vcpupin vcpu='1' cpuset='5'/>
+    <vcpupin vcpu='2' cpuset='6'/>
+    <vcpupin vcpu='3' cpuset='7'/>
+    <vcpupin vcpu='4' cpuset='8'/>
+    <vcpupin vcpu='5' cpuset='9'/>
+    <vcpupin vcpu='6' cpuset='10'/>
+    <vcpupin vcpu='7' cpuset='11'/>
+    <emulatorpin cpuset='12-13'/>
+    <iothreadpin iothread='1' cpuset='12-13'/>
+  </cputune>
+
+  <cpu mode='host-passthrough' check='none' migratable='on'>
+    <topology sockets='1' dies='1' clusters='1' cores='4' threads='2'/>
+  </cpu>
+
+- Hiding KVM
+
+  <features>
+    ...
+    <hyperv mode='custom'>
+      ...
+      <vendor_id state='on' value='whatever'/>
+      ...
+    </hyperv>
+    <kvm>
+      <hidden state='on'/>
+    </kvm>
+    ...
+  </features>
+
+- Looking Glass Client Version (B7)
+
+- Looking Glass client.ini
+
+[app]
+shmFile=/dev/kvmfr0
+
+[win]
+autoResize=yes
+showFPS=no
+
+[input]
+escapeKey = KEY_RIGHTCTRL
+rawMouse=yes
+
+[wayland]
+warpSupport=yes
+fractionScale=yes
+
+[spice]
+enable=yes
+
+- VM Conf.
+
+-- Windows 10 Pro
+
+-- Install Virtual-Display-Driver to provide headless display
+
+-- Setting the `VDD by MTT` monitor as the only primary monitor in system settings
+   RDP connection will disable this feature, so use RustDesk instead
+   Firewall should be turned off for the active network (private is recommended)
+
+-- Let `dwm.exe` be rendered by the High Performance Nvidia GPU
+
+-- Enable auto login:
+
+--- regedit: Set `DevicePasswordLessBuildVersion = 0` to reveal the selection area in `netplwiz`
+
+--- netplwiz: Uncheck "Require password ..."
+
+--- secpol.msc: Disable Interactive Login (Ctrl + Alt + Del)
+
+-- Launching Looking Glass (Host)
+
+--- Disable RustDesk startup
+
+--- Ensure the Looking Glass (Host) service is set to `Automatic`
+
+--- looking-glass-host.ini:
+
+[app]
+capture=dxgi
+
+- Installing Audio Driver (IVSHMEM)
+
+-- Secure Boot Disabled and remove old NVRAM file (/var/lib/libvirt/qemu/nvram/....fd)
+
+-- idk
