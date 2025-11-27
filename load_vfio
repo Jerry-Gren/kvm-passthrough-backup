@@ -1,0 +1,17 @@
+#!/bin/bash
+
+VIRSH_GPU_VIDEO="pci_0000_01_00_0"
+
+## Remove NVIDIA modules
+rmmod nvidia_uvm
+rmmod nvidia_drm
+rmmod nvidia_modeset
+rmmod nvidia
+
+## Load vfio
+modprobe vfio
+modprobe vfio_iommu_type1
+modprobe vfio_pci
+
+## Unbind gpu from nvidia and bind to vfio
+virsh nodedev-detach $VIRSH_GPU_VIDEO
