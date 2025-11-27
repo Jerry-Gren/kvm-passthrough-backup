@@ -1,0 +1,103 @@
+#!/bin/bash
+
+TARGET_VM="win10-vfio"
+DISK_BY_ID="/dev/disk/by-id/nvme-WD_Blue_SN5000_1TB_253415802041-part2"
+RULE_FILE="/run/udev/rules.d/99-vfio-hide-partition.rules"
+LOG_FILE="/tmp/vfio-hook.log"
+USER_NAME="tairitsu"
+
+exec >> "$LOG_FILE" 2>&1
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+}
+
+if [ "$1" != "$TARGET_VM" ]; then
+    exit 0
+fi
+
+OBJECT="$1"
+OPERATION="$2"
+SUB_OP="$3"
+
+log "Hook triggered: Op=$OPERATION"
+
+get_real_device() {
+    if [ -e "$DISK_BY_ID" ]; then
+        realpath "$DISK_BY_ID"
+    else
+        echo ""
+    fi
+}
+
+get_partuuid() {
+    local dev="$1"
+    blkid -s PARTUUID -o value "$dev"
+}
+
+# Stage Prepare
+if [ "$OPERATION" == "prepare" ]; then
+    REAL_DEVICE=$(get_real_device)
+    if [ -n "$REAL_DEVICE" ] && findmnt -n --source "$REAL_DEVICE" >/dev/null 2>&1; then
+        log "BLOCKING START: Partition $REAL_DEVICE is mounted."
+        echo "[Error] Partition $REAL_DEVICE is mounted!" >&2
+        exit 1
+    fi
+fi
+
+# Stage Started
+if [ "$OPERATION" == "started" ]; then
+    # Hide the partition
+    REAL_DEVICE=$(get_real_device)
+    if [ -n "$REAL_DEVICE" ]; then
+        PART_UUID=$(get_partuuid "$REAL_DEVICE")
+        
+        if [ -n "$PART_UUID" ]; then
+            log "Hiding partition $REAL_DEVICE (UUID: $PART_UUID) from GUI..."
+            
+            mkdir -p /run/udev/rules.d
+            echo "ENV{ID_PART_ENTRY_UUID}==\"$PART_UUID\", ENV{UDISKS_IGNORE}=\"1\"" > "$RULE_FILE"
+            
+            udevadm control --reload-rules
+            udevadm trigger --action=change --name-match="$(basename "$REAL_DEVICE")"
+            
+            log "Hide rule applied. Partition should vanish from Thunar."
+        else
+            log "Error: Could not get PARTUUID. Hide failed."
+        fi
+    fi
+
+    # Launch Scream audio receiver
+    log "Starting Scream audio receiver..."
+    systemd-run --unit=scream-receiver --user -M "${USER_NAME}@" -- scream -i virbr0
+fi
+
+# Stage Release
+if [ "$OPERATION" == "release" ]; then
+    # Stop Scream
+    log "Stopping Scream audio receiver..."
+    systemctl --user -M "${USER_NAME}@" stop scream-receiver
+
+    # Restore partition visibility
+    log "Restoring partition visibility..."
+
+    if [ -f "$RULE_FILE" ]; then
+        rm -f "$RULE_FILE"
+        log "Rule file removed."
+    fi
+
+    udevadm control --reload-rules
+    
+    REAL_DEVICE=$(get_real_device)
+    
+    if [ -n "$REAL_DEVICE" ]; then
+        DEVICE_NAME=$(basename "$REAL_DEVICE")
+        udevadm trigger --action=change --name-match="$DEVICE_NAME"
+        log "Triggered CHANGE event for $DEVICE_NAME"
+    else
+        log "Device path not found, triggering full block rescan..."
+        udevadm trigger --action=change --subsystem-match=block
+    fi
+fi
+
+exit 0
